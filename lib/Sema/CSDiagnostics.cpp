@@ -2019,6 +2019,18 @@ bool ContextualFailure::diagnoseAsError() {
     }
 
     if (isExpr<AssignExpr>(anchor)) {
+      if (auto *func = getAsDecl<FuncDecl>(anchor)) {
+        /// this error is relevant for mutating instance methods
+        if (func->isMutating() && func->isInstanceMember()) {
+          /// if func is (returning void && mutating) and (LHS is not void)
+          auto fnRetType = func->getBodyResultTypeLoc().getType();
+          if (fnRetType->isVoid() && !getToType()->isVoid()) {
+            emitDiagnostic(diag::cannot_assign_void_returning_method,
+                           getToType());
+            return true;
+          }
+        }
+      }
       emitDiagnostic(diag::cannot_convert_assign, getFromType(), getToType());
       return true;
     }

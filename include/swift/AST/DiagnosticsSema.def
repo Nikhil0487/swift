@@ -510,6 +510,8 @@ ERROR(cannot_convert_assign_anyobject,none,
       (Type, Type))
 ERROR(cannot_convert_assign_nil,none,
       "'nil' cannot be assigned to type %0", (Type))
+ERROR(cannot_assign_void_returning_method,none,
+      "cannot assign result of Void-returning method to type %0", (Type))
 
 // Subscript Assign Expr
 ERROR(cannot_convert_subscript_assign,none,
