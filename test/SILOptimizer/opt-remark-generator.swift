@@ -1,6 +1,8 @@
 // RUN: %target-swiftc_driver -O -Rpass-missed=sil-opt-remark-gen -Xllvm -sil-disable-pass=FunctionSignatureOpts -emit-sil %s -o /dev/null -Xfrontend -verify
 // REQUIRES: optimized_stdlib
 
+// XFAIL: OS=linux-androideabi && CPU=armv7
+
 public class Klass {}
 
 public var global = Klass()
@@ -29,13 +31,7 @@ case third
 }
 
 struct StructWithOwner {
-    // This retain is from the initializers of owner.
-    //
-    // TODO: Should we emit this?
-    var owner = Klass() // expected-remark {{retain of type 'Klass'}}
-                        // expected-note @-1 {{of 'self.owner'}}
-                        // expected-remark @-2 {{release of type 'Klass'}}
-                        // expected-note @-3 {{of 'self.owner'}}
+    var owner = Klass()
     var state = TrivialState.first
 }
 
@@ -64,14 +60,8 @@ func callingAnInitializerStructWithOwner(x: Klass) -> StructWithOwner {
 }
 
 struct KlassPair {
-    var lhs: Klass // expected-remark {{retain of type 'Klass'}}
-                   // expected-note @-1 {{of 'self.lhs'}}
-                   // expected-remark @-2 {{release of type 'Klass'}}
-                   // expected-note @-3 {{of 'self.lhs'}}
-    var rhs: Klass // expected-remark {{retain of type 'Klass'}}
-                   // expected-note @-1 {{of 'self.rhs'}}
-                   // expected-remark @-2 {{release of type 'Klass'}}
-                   // expected-note @-3 {{of 'self.rhs'}}
+    var lhs: Klass
+    var rhs: Klass
 }
 
 func printKlassPair(x : KlassPair) {
@@ -240,4 +230,30 @@ func inoutKlassBangCastArgument2(x: inout Klass?) -> SubKlass {
 func inoutKlassQuestionCastArgument2(x: inout Klass?) -> SubKlass? {
     return x as? SubKlass // expected-remark {{retain of type 'Klass'}}
                           // expected-note @-2 {{of 'x.some'}}
+}
+
+// We should have 1x rr remark here on calleeX for storing it into the array to
+// print. Release is from the array. We don't pattern match it due to the actual
+// underlying Array type name changing under the hood in between platforms.
+@inline(__always)
+func alwaysInlineCallee(_ calleeX: Klass) {
+    print(calleeX) // expected-remark @:5 {{retain of type 'Klass'}}
+                   // expected-note @-2:27 {{of 'calleeX'}}
+                   // expected-remark @-2:18 {{release of type}}
+}
+
+// We should have 3x rr remarks here on callerX and none on calleeX.  All of the
+// releases are for the temporary array that we pass into print.
+//
+// TODO: Should we print out as notes the whole inlined call stack?
+func alwaysInlineCaller(_ callerX: Klass) {
+    alwaysInlineCallee(callerX) // expected-remark @:5 {{retain of type 'Klass'}}
+                                // expected-note @-2:27 {{of 'callerX'}}
+                                // expected-remark @-2:31 {{release of type}}
+    print(callerX)              // expected-remark @:5 {{retain of type 'Klass'}}
+                                // expected-note @-5:27 {{of 'callerX'}}
+                                // expected-remark @-2:18 {{release of type}}
+    alwaysInlineCallee(callerX) // expected-remark @:5 {{retain of type 'Klass'}}
+                                // expected-note @-8:27 {{of 'callerX'}}
+                                // expected-remark @-2:31 {{release of type}}
 }

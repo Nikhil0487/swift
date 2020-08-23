@@ -369,6 +369,10 @@ option(SWIFT_REPORT_STATISTICS
     "Create json files which contain internal compilation statistics"
     FALSE)
 
+option(SWIFT_DISABLE_OBJC_INTEROP
+    "Disable Objective-C interoperability even on platforms what would normally have it"
+    FALSE)
+
 #
 # User-configurable experimental options.  Do not use in production builds.
 #
@@ -627,6 +631,21 @@ swift_common_cxx_warnings()
 # Check if we're build with MSVC or Clang-cl, as these compilers have similar command line arguments.
 if("${CMAKE_C_COMPILER_ID}" STREQUAL "MSVC" OR "${CMAKE_CXX_SIMULATE_ID}" STREQUAL "MSVC")
   set(SWIFT_COMPILER_IS_MSVC_LIKE TRUE)
+endif()
+
+if(NOT SWIFT_COMPILER_IS_MSVC_LIKE)
+  # CMake's default for CMAKE_CXX_FLAGS_RELEASE is "-O3 -DNDEBUG". Let's avoid "-O3" for consistency
+  # between Release and RelWithDebInfo. And let's not set -DNDEBUG because we're setting that manually
+  # based on LLVM_ENABLE_ASSERTIONS.
+  set(CMAKE_CXX_FLAGS_RELEASE "-O2")
+
+  _compute_lto_flag("${SWIFT_TOOLS_ENABLE_LTO}" _lto_flag_out)
+  if(_lto_flag_out)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_RELEASE} -gline-tables-only")
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -gline-tables-only")
+  endif()
+else()
+  
 endif()
 
 #

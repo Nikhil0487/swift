@@ -241,14 +241,11 @@ bool BottomUpRefCountState::handleGuaranteedUser(
 
   // Advance the sequence...
   switch (LatState) {
-  // If were decremented, insert the insertion point.
   case LatticeState::Decremented: {
     LatState = LatticeState::MightBeDecremented;
     return true;
   }
   case LatticeState::MightBeUsed:
-    // If we have a might be used, we already created an insertion point
-    // earlier. Just move to MightBeDecremented.
     LatState = LatticeState::MightBeDecremented;
     return true;
   case LatticeState::MightBeDecremented:
@@ -364,6 +361,14 @@ bool BottomUpRefCountState::handlePotentialGuaranteedUser(
   // return...
   if (!mayGuaranteedUseValue(PotentialGuaranteedUser, getRCRoot(), AA))
     return false;
+
+  // If we can prove that the pointer we are tracking cannot be decremented,
+  // return. On return, BottomUpRefCountState::handlePotentialUser can correctly
+  // handle transition of refcount state. It transitions from a Decrement
+  // refcount state to a MighBeUsed refcount state
+  if (!mayDecrementRefCount(PotentialGuaranteedUser, getRCRoot(), AA)) {
+    return false;
+   }
 
   // Instructions that we do not recognize (and thus will not move) and that
   // *must* use RCIdentity, implies we are always known safe as long as meet
@@ -493,40 +498,6 @@ void BottomUpRefCountState::updateForDifferentLoopInst(
     return;
   LLVM_DEBUG(llvm::dbgs() << "    Found Potential Use:\n        "
                           << getRCRoot());
-}
-
-void BottomUpRefCountState::updateForPredTerminators(
-    ArrayRef<SILInstruction *> Terms,
-    ImmutablePointerSetFactory<SILInstruction> &SetFactory, AliasAnalysis *AA) {
-  // If this state is not tracking anything, there is nothing to update.
-  if (!isTrackingRefCount())
-    return;
-
-  if (valueCanBeGuaranteedUsedGivenLatticeState() &&
-      std::any_of(Terms.begin(), Terms.end(),
-                  [this, &AA](SILInstruction *I) -> bool {
-                    return mayGuaranteedUseValue(I, getRCRoot(), AA);
-                  })) {
-    handleGuaranteedUser(getRCRoot(), SetFactory, AA);
-    return;
-  }
-
-  if (valueCanBeDecrementedGivenLatticeState() &&
-      std::any_of(Terms.begin(), Terms.end(),
-                  [this, &AA](SILInstruction *I) -> bool {
-                    return mayDecrementRefCount(I, getRCRoot(), AA);
-                  })) {
-    handleDecrement();
-    return;
-  }
-
-  if (!valueCanBeUsedGivenLatticeState() ||
-      std::none_of(Terms.begin(), Terms.end(),
-                   [this, &AA](SILInstruction *I)
-       -> bool { return mayHaveSymmetricInterference(I, getRCRoot(), AA); }))
-    return;
-
-  handleUser(getRCRoot(), SetFactory, AA);
 }
 
 //===----------------------------------------------------------------------===//
@@ -697,14 +668,11 @@ bool TopDownRefCountState::handleGuaranteedUser(
          "Must be able to be used at this point of the lattice.");
   // Advance the sequence...
   switch (LatState) {
-  // If were decremented, insert the insertion point.
   case LatticeState::Incremented: {
     LatState = LatticeState::MightBeUsed;
     return true;
   }
   case LatticeState::MightBeDecremented:
-    // If we have a might be used, we already created an insertion point
-    // earlier. Just move to MightBeDecremented.
     LatState = LatticeState::MightBeUsed;
     return true;
   case LatticeState::MightBeUsed:
@@ -815,6 +783,13 @@ bool TopDownRefCountState::handlePotentialGuaranteedUser(
   // return...
   if (!mayGuaranteedUseValue(PotentialGuaranteedUser, getRCRoot(), AA))
     return false;
+
+  // If we can prove that the pointer we are tracking cannot be decremented,
+  // return. On return, TopDownRefCountState::handlePotentialUser can correctly
+  // handle transition of refcount state.
+  if (!mayDecrementRefCount(PotentialGuaranteedUser, getRCRoot(), AA)) {
+    return false;
+   }
 
   // Otherwise, update our step given that we have a potential decrement.
   return handleGuaranteedUser(PotentialGuaranteedUser, getRCRoot(),

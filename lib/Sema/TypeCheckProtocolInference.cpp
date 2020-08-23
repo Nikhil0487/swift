@@ -595,15 +595,21 @@ AssociatedTypeInference::inferTypeWitnessesViaAssociatedType(
     defaultName = DeclNameRef(getASTContext().getIdentifier(defaultNameStr));
   }
 
+  NLOptions subOptions = (NL_QualifiedDefault |
+                          NL_OnlyTypes |
+                          NL_ProtocolMembers);
+
   // Look for types with the given default name that have appropriate
   // @_implements attributes.
+  SmallVector<ValueDecl *, 4> lookupResults;
+  dc->lookupQualified(adoptee->getAnyNominal(), defaultName,
+                      subOptions, lookupResults);
+
   InferredAssociatedTypesByWitnesses result;
-  auto lookupOptions = defaultMemberTypeLookupOptions;
-  lookupOptions -= NameLookupFlags::PerformConformanceCheck;
-  for (auto candidate :
-       TypeChecker::lookupMember(dc, adoptee, defaultName, lookupOptions)) {
+
+  for (auto decl : lookupResults) {
     // We want type declarations.
-    auto typeDecl = dyn_cast<TypeDecl>(candidate.getValueDecl());
+    auto typeDecl = dyn_cast<TypeDecl>(decl);
     if (!typeDecl || isa<AssociatedTypeDecl>(typeDecl))
       continue;
 
@@ -807,7 +813,8 @@ Type AssociatedTypeInference::computeFixedTypeWitness(
   // require a fixed type for this associated type.
   Type resultType;
   for (auto conformedProto : adoptee->getAnyNominal()->getAllProtocols()) {
-    if (!conformedProto->inheritsFrom(assocType->getProtocol()))
+    if (conformedProto != assocType->getProtocol() &&
+        !conformedProto->inheritsFrom(assocType->getProtocol()))
       continue;
 
     const auto genericSig = conformedProto->getGenericSignature();
